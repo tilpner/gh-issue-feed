@@ -30,6 +30,14 @@ fn state_to_integer(state: issues_query::IssueState) -> i64 {
     }
 }
 
+pub fn integer_to_state_desc(state: i64) -> Option<String> {
+    match state {
+        0 => Some("open"),
+        1 => Some("closed"),
+        _ => None
+    }.map(str::to_owned)
+}
+
 pub async fn update(mut conn: &mut Conn, github_api_token: &str, (ref owner, ref name): (String, String)) -> anyhow::Result<()> {
     let repo = repo_id(conn, owner, name).await?;
 

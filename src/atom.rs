@@ -5,12 +5,13 @@ use std::{
 
 use sqlx::prelude::*;
 use atom_syndication::*;
-use anyhow::Result;
+use anyhow::{ Result, Context };
 use futures::{ Stream, StreamExt };
+use chrono::{ Utc, TimeZone };
 
 use tracing::info;
 
-use crate::{ Conn, query::repo_id };
+use crate::{ Conn, query::{ self, repo_id } };
 
 #[allow(dead_code)]
 #[derive(sqlx::FromRow)]
@@ -34,10 +35,40 @@ async fn query_issues_for_label<'conn>(conn: &'conn mut Conn, repo_id: i64, labe
        .fetch(conn)
 }
 
-fn issue_to_entry(issue: Issue) -> Entry {
-    EntryBuilder::default()
+async fn issue_to_entry(conn: &mut Conn, repo_id: i64, issue: Issue) -> Result<Entry> {
+    let state_label = query::issues::integer_to_state_desc(issue.state);
+    let labels_of_issue = sqlx::query_as::<_, (String,)>(
+        "SELECT labels.name FROM is_labeled
+         JOIN labels ON is_labeled.label=labels.id
+         JOIN issues ON (is_labeled.issue=issues.number AND is_labeled.repo=issues.repo)
+         WHERE is_labeled.repo=? AND is_labeled.issue=?"
+    ).bind(repo_id).bind(issue.number)
+     .fetch(&mut *conn);
+
+    let all_labels = futures::stream::iter(state_label)
+        .chain(labels_of_issue
+               .filter_map(|row| async { row.ok() })
+               .map(|(name,)| name))
+        .map(|name| Category {
+            term: name,
+            scheme: None,
+            label: None
+        })
+        .collect::<Vec<_>>()
+        .await;
+
+    Ok(EntryBuilder::default()
         .title(issue.title)
         .id(issue.html_url.clone())
+        .updated(Utc.timestamp(issue.updated_at, 0))
+        .authors(vec![
+            Person {
+                uri: Some(format!("https://github.com/{}", issue.user_login)),
+                name: issue.user_login,
+                email: None
+            }
+        ])
+        .categories(all_labels)
         .links(vec![LinkBuilder::default()
                         .href(issue.html_url)
                         .build()
@@ -48,7 +79,8 @@ fn issue_to_entry(issue: Issue) -> Entry {
                     .build()
                     .expect("Failed to build content"))
         .build()
-        .expect("Failed to build entry")
+        .map_err(|err_str| anyhow::anyhow!(err_str))
+        .context("Failed to build atom entry")?)
 }
 
 pub async fn generate(mut conn: &mut Conn, (ref owner, ref name): (String, String), out_path: PathBuf, labels: Vec<String>) -> Result<()> {
@@ -73,13 +105,18 @@ pub async fn generate(mut conn: &mut Conn, (ref owner, ref name): (String, Strin
         let mut feed = FeedBuilder::default();
         feed.title(label.clone());
 
-        let issues = query_issues_for_label(&mut conn, repo_id, &label).await;
-        feed.entries(
-            issues.filter_map(|issue| async { issue.ok() })
-                  .map(issue_to_entry)
-                  .collect::<Vec<_>>()
-                  .await
-        );
+        let issues: Vec<Issue> = query_issues_for_label(&mut conn, repo_id, &label).await
+            .filter_map(|res| async { res.ok() })
+            .collect().await;
+
+        let entries: Vec<Entry> = {
+            let mut acc = Vec::new();
+            for issue in issues.into_iter() {
+                acc.push(issue_to_entry(&mut conn, repo_id, issue).await?);
+            }
+            acc
+        };
+        feed.entries(entries);
 
         let feed = feed.build().expect("Failed to build feed");
 

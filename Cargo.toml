@@ -18,7 +18,10 @@ sqlx = { version = "0.3", default-features = false, features = [ "runtime-tokio"
 
 anyhow = "1.0"
 
+# sqlx pretty-prints all queries with sqlformat to log, which is very expensive
+log = { version = "0.4", features = [ "max_level_off", "release_max_level_off" ] }
 tracing = "0.1"
 tracing-subscriber = "0.2.4"
 
 atom_syndication = "0.9"
+rss = "1.9"
