@@ -31,7 +31,9 @@ enum OptMode {
     Atom {
         repo: String,
         out_path: PathBuf,
-        labels: Vec<String>
+        labels: Vec<String>,
+        #[structopt(long)]
+        only_open: bool
     }
 }
 
@@ -127,9 +129,9 @@ fn main() -> Result<()> {
                 tx.commit().await?;
                 Ok(())
             },
-            OptMode::Atom { repo, out_path, labels } => {
+            OptMode::Atom { repo, out_path, labels, only_open } => {
                 let repo = parse_repo(&repo)?;
-                atom::generate(&mut *pool.acquire().await?, repo, out_path, labels).await
+                atom::generate(&mut *pool.acquire().await?, repo, out_path, labels, only_open).await
                     .context("Failed to generate Atom feed")?;
                 Ok(())
             }

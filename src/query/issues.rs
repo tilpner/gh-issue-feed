@@ -21,22 +21,33 @@ type DateTime = String;
 )]
 pub struct IssuesQuery;
 
-fn state_to_integer(state: issues_query::IssueState) -> i64 {
-    use issues_query::IssueState::*;
-    match state {
-        OPEN => 0,
-        CLOSED => 1,
-        Other(_) => 2
+pub use issues_query::IssueState;
+impl IssueState {
+    pub fn from_integer(i: i64) -> Option<Self> {
+        match i {
+            0 => Some(Self::OPEN),
+            1 => Some(Self::CLOSED),
+            _ => None
+        }
+    }
+
+    pub fn to_integer(&self) -> i64 {
+        match self {
+            Self::OPEN => 0,
+            Self::CLOSED => 1,
+            Self::Other(_) => 2
+        }
+    }
+
+    pub fn to_string(&self) -> Option<String> {
+        match self {
+            Self::OPEN => Some("open"),
+            Self::CLOSED => Some("closed"),
+            Self::Other(_) => None
+        }.map(str::to_owned)
     }
 }
 
-pub fn integer_to_state_desc(state: i64) -> Option<String> {
-    match state {
-        0 => Some("open"),
-        1 => Some("closed"),
-        _ => None
-    }.map(str::to_owned)
-}
 
 pub async fn update(mut conn: &mut Conn, github_api_token: &str, (ref owner, ref name): (String, String)) -> anyhow::Result<()> {
     let repo = repo_id(conn, owner, name).await?;
@@ -90,7 +101,7 @@ pub async fn update(mut conn: &mut Conn, github_api_token: &str, (ref owner, ref
                     "REPLACE INTO issues (repo, number, state, title, body, user_login, html_url, updated_at)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                 ).bind(repo).bind(issue.number)
-                 .bind(state_to_integer(issue.state)).bind(issue.title).bind(issue.body_html)
+                 .bind(issue.state.to_integer()).bind(issue.title).bind(issue.body_html)
                  .bind(author).bind(issue.url).bind(ts)
                  .execute(&mut conn)
                  .await?;

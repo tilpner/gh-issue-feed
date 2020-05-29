@@ -44,18 +44,22 @@ fn entity_escape(from: &str) -> String {
     escaped
 }
 
-async fn query_issues_for_label<'conn>(conn: &'conn mut Conn, repo_id: i64, label: &str) -> impl Stream<Item=sqlx::Result<Issue>> + 'conn {
+async fn query_issues_for_label<'conn>(conn: &'conn mut Conn,
+        repo_id: i64, label: &str, only_open: bool) -> impl Stream<Item=sqlx::Result<Issue>> + 'conn {
     sqlx::query_as::<_, Issue>(r#"
         SELECT issues.number, state, title, body, user_login, html_url, updated_at FROM issues
         INNER JOIN is_labeled ON is_labeled.issue=issues.number
         WHERE is_labeled.label=(SELECT id FROM labels WHERE repo=? AND name=?)
+          AND (?=0 OR issues.state=?)
         ORDER BY issues.number DESC
     "#).bind(repo_id).bind(label)
+       .bind(only_open).bind(query::issues::IssueState::OPEN.to_integer())
        .fetch(conn)
 }
 
 async fn issue_to_entry(conn: &mut Conn, repo_id: i64, issue: Issue) -> Result<Entry> {
-    let state_label = query::issues::integer_to_state_desc(issue.state);
+    let state_label = query::issues::IssueState::from_integer(issue.state)
+        .expect("Inconsistent database, invalid issue state").to_string();
     let labels_of_issue = sqlx::query_as::<_, (String,)>(
         "SELECT labels.name FROM is_labeled
          JOIN labels ON is_labeled.label=labels.id
@@ -102,7 +106,9 @@ async fn issue_to_entry(conn: &mut Conn, repo_id: i64, issue: Issue) -> Result<E
         .context("Failed to build atom entry")?)
 }
 
-pub async fn generate(mut conn: &mut Conn, (ref owner, ref name): (String, String), out_path: PathBuf, labels: Vec<String>) -> Result<()> {
+pub async fn generate(mut conn: &mut Conn, (ref owner, ref name): (String, String),
+        out_path: PathBuf, labels: Vec<String>,
+        only_open: bool) -> Result<()> {
     let labels = if labels.is_empty() {
         sqlx::query_as::<_, (String,)>(
             "SELECT name FROM labels WHERE repo=(SELECT id FROM repositories WHERE owner=? AND name=?)"
@@ -142,7 +148,7 @@ pub async fn generate(mut conn: &mut Conn, (ref owner, ref name): (String, Strin
                 .map_err(anyhow::Error::msg)?
         ]);
 
-        let issues: Vec<Issue> = query_issues_for_label(&mut conn, repo_id, &label).await
+        let issues: Vec<Issue> = query_issues_for_label(&mut conn, repo_id, &label, only_open).await
             .filter_map(|res| async { res.ok() })
             .collect().await;
 
