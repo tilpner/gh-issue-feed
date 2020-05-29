@@ -10,6 +10,7 @@ serde = "1.0"
 reqwest = { version = "0.10", features = [ "json" ] }
 structopt = "0.3"
 chrono = "0.4"
+url = "2.1"
 
 futures = "0.3"
 smol = { version = "0.1", features = [ "tokio02" ] }

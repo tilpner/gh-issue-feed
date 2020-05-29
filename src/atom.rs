@@ -8,6 +8,7 @@ use atom_syndication::*;
 use anyhow::{ Result, Context };
 use futures::{ Stream, StreamExt };
 use chrono::{ Utc, TimeZone };
+use url::Url;
 
 use tracing::info;
 
@@ -23,6 +24,24 @@ struct Issue {
     user_login: String,
     html_url: String,
     updated_at: i64
+}
+
+// Naive implementation of https://www.w3.org/TR/REC-xml/#syntax
+fn entity_escape(from: &str) -> String {
+    let mut escaped = String::with_capacity(from.len());
+
+    for c in from.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '\'' => escaped.push_str("&apos;"),
+            '"' => escaped.push_str("&quot;"),
+            any => escaped.push(any)
+        }
+    }
+
+    escaped
 }
 
 async fn query_issues_for_label<'conn>(conn: &'conn mut Conn, repo_id: i64, label: &str) -> impl Stream<Item=sqlx::Result<Issue>> + 'conn {
@@ -58,8 +77,8 @@ async fn issue_to_entry(conn: &mut Conn, repo_id: i64, issue: Issue) -> Result<E
         .await;
 
     Ok(EntryBuilder::default()
-        .title(issue.title)
-        .id(issue.html_url.clone())
+        .title(entity_escape(&issue.title))
+        .id(entity_escape(&issue.html_url))
         .updated(Utc.timestamp(issue.updated_at, 0))
         .authors(vec![
             Person {
@@ -75,7 +94,7 @@ async fn issue_to_entry(conn: &mut Conn, repo_id: i64, issue: Issue) -> Result<E
                         .expect("Failed to build link")])
         .content(ContentBuilder::default()
                     .content_type(Some(String::from("html")))
-                    .value(issue.body)
+                    .value(entity_escape(&issue.body))
                     .build()
                     .expect("Failed to build content"))
         .build()
@@ -102,8 +121,26 @@ pub async fn generate(mut conn: &mut Conn, (ref owner, ref name): (String, Strin
     for label in labels {
         info!("atom for {:?}", label);
 
+        let label_url = {
+            let mut url = Url::parse("https://github.com")?;
+            url.path_segments_mut()
+                .unwrap()
+                .push(owner).push(name)
+                .push("labels").push(&label);
+            url.into_string()
+        };
+
         let mut feed = FeedBuilder::default();
-        feed.title(label.clone());
+        feed.title(entity_escape(&label));
+        feed.id(&label_url);
+        feed.updated(Utc::now());
+        feed.links(vec![
+            LinkBuilder::default()
+                .href(&label_url)
+                .rel("alternate")
+                .build()
+                .map_err(anyhow::Error::msg)?
+        ]);
 
         let issues: Vec<Issue> = query_issues_for_label(&mut conn, repo_id, &label).await
             .filter_map(|res| async { res.ok() })
