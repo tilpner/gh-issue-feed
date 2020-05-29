@@ -25,17 +25,17 @@ pub use issues_query::IssueState;
 impl IssueState {
     pub fn from_integer(i: i64) -> Option<Self> {
         match i {
-            0 => Some(Self::OPEN),
-            1 => Some(Self::CLOSED),
+            1 => Some(Self::OPEN),
+            2 => Some(Self::CLOSED),
             _ => None
         }
     }
 
     pub fn to_integer(&self) -> i64 {
         match self {
-            Self::OPEN => 0,
-            Self::CLOSED => 1,
-            Self::Other(_) => 2
+            Self::OPEN => 1,
+            Self::CLOSED => 2,
+            Self::Other(_) => 0
         }
     }
 

@@ -45,15 +45,15 @@ fn entity_escape(from: &str) -> String {
 }
 
 async fn query_issues_for_label<'conn>(conn: &'conn mut Conn,
-        repo_id: i64, label: &str, only_open: bool) -> impl Stream<Item=sqlx::Result<Issue>> + 'conn {
+        repo_id: i64, label: &str, state_mask: i64) -> impl Stream<Item=sqlx::Result<Issue>> + 'conn {
     sqlx::query_as::<_, Issue>(r#"
         SELECT issues.number, state, title, body, user_login, html_url, updated_at FROM issues
         INNER JOIN is_labeled ON is_labeled.issue=issues.number
         WHERE is_labeled.label=(SELECT id FROM labels WHERE repo=? AND name=?)
-          AND (?=0 OR issues.state=?)
+          AND issues.state & ? != 0
         ORDER BY issues.number DESC
     "#).bind(repo_id).bind(label)
-       .bind(only_open).bind(query::issues::IssueState::OPEN.to_integer())
+       .bind(state_mask)
        .fetch(conn)
 }
 
@@ -124,6 +124,9 @@ pub async fn generate(mut conn: &mut Conn, (ref owner, ref name): (String, Strin
 
     let repo_id = repo_id(&mut conn, owner, name).await?;
 
+    let mut state_mask = !0;
+    if only_open { state_mask &= !query::issues::IssueState::CLOSED.to_integer(); }
+
     for label in labels {
         info!("atom for {:?}", label);
 
@@ -148,7 +151,7 @@ pub async fn generate(mut conn: &mut Conn, (ref owner, ref name): (String, Strin
                 .map_err(anyhow::Error::msg)?
         ]);
 
-        let issues: Vec<Issue> = query_issues_for_label(&mut conn, repo_id, &label, only_open).await
+        let issues: Vec<Issue> = query_issues_for_label(&mut conn, repo_id, &label, state_mask).await
             .filter_map(|res| async { res.ok() })
             .collect().await;
 

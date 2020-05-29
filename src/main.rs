@@ -61,6 +61,7 @@ async fn init_db(conn: &mut Conn) {
             updated_at integer,
             PRIMARY KEY (repo, number)
         );
+        CREATE INDEX IF NOT EXISTS issues_state ON issues (repo, number, state);
 
         CREATE TABLE IF NOT EXISTS labels(
             id integer PRIMARY KEY,
