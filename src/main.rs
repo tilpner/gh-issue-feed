@@ -11,7 +11,7 @@ use tracing_subscriber::{
 use anyhow::{ anyhow, Result, Context };
 
 pub mod query;
-pub mod atom;
+pub mod generate;
 
 #[derive(StructOpt)]
 #[structopt(name = "github-label-feed")]
@@ -21,20 +21,40 @@ struct Opt {
 }
 
 #[derive(StructOpt)]
+pub struct GenerateOpts {
+    /// Repository to generate feeds for
+    repo: String,
+    /// Root directory of output
+    out_path: PathBuf,
+    /// Labels for which to generate feeds. Leave empty to select all labels
+    labels: Vec<String>,
+    /// Exclude open issues from the feeds
+    #[structopt(long)]
+    without_open: bool,
+    /// Exclude closed issues from the feeds
+    #[structopt(long)]
+    without_closed: bool,
+
+    /// Generate an RSS feed to rss.xml
+    #[structopt(long)]
+    rss: bool,
+    /// Generate an Atom feed to atom.xml
+    #[structopt(long)]
+    atom: bool
+}
+
+#[derive(StructOpt)]
 enum OptMode {
+    /// List repositories currently stored in database
     List,
+    /// Synchronise <repo> updates, starting from most recent issue update time
     Sync {
         repo: String,
         #[structopt(long = "github-api-token", env = "GITHUB_TOKEN", hide_env_values = true)]
         github_api_token: String
     },
-    Atom {
-        repo: String,
-        out_path: PathBuf,
-        labels: Vec<String>,
-        #[structopt(long)]
-        only_open: bool
-    }
+    /// Generate Atom feeds for <repo>
+    Generate(GenerateOpts)
 }
 
 
@@ -130,12 +150,7 @@ fn main() -> Result<()> {
                 tx.commit().await?;
                 Ok(())
             },
-            OptMode::Atom { repo, out_path, labels, only_open } => {
-                let repo = parse_repo(&repo)?;
-                atom::generate(&mut *pool.acquire().await?, repo, out_path, labels, only_open).await
-                    .context("Failed to generate Atom feed")?;
-                Ok(())
-            }
+            OptMode::Generate(opts) => generate::run(&mut *pool.acquire().await?, opts).await
         }
     })
 }
