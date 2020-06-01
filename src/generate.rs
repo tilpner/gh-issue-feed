@@ -1,5 +1,6 @@
 use std::{
-    fs::{ self, File }
+    fs::{ self, File },
+    collections::HashMap
 };
 
 use sqlx::prelude::*;
@@ -221,6 +222,13 @@ pub async fn run(mut conn: &mut Conn, opts: GenerateOpts) -> Result<()> {
             channel.link(&label_url);
             channel.pub_date(Utc::now().to_rfc2822());
             channel.items(rss_items);
+
+            channel.namespaces({
+                let mut ns = HashMap::new();
+                ns.insert("content".to_owned(),
+                          "http://purl.org/rss/1.0/modules/content/".to_owned());
+                ns
+            });
 
             let channel = channel.build().expect("Failed to build RSS channel");
             let channel_path = feed_directory.join("rss.xml");
