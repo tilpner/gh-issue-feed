@@ -56,7 +56,7 @@ async fn query_issues_for_label<'conn>(conn: &'conn mut Conn,
         repo_id: i64, label: &str, state_mask: i64) -> impl Stream<Item=sqlx::Result<Issue>> + 'conn {
     sqlx::query_as::<_, Issue>(r#"
         SELECT issues.number, state, title, body, user_login, html_url, updated_at FROM issues
-        INNER JOIN is_labeled ON is_labeled.issue=issues.number
+        INNER JOIN is_labeled ON is_labeled.repo=issues.repo AND is_labeled.issue=issues.number
         WHERE is_labeled.label=(SELECT id FROM labels WHERE repo=? AND name=?)
           AND issues.state & ? != 0
         ORDER BY issues.number DESC
@@ -175,7 +175,7 @@ pub async fn run(mut conn: &mut Conn, opts: GenerateOpts) -> Result<()> {
             let labels_of_issue = sqlx::query_as::<_, (String,)>(
                 "SELECT labels.name FROM is_labeled
                  JOIN labels ON is_labeled.label=labels.id
-                 JOIN issues ON (is_labeled.issue=issues.number AND is_labeled.repo=issues.repo)
+                 JOIN issues ON is_labeled.repo=issues.repo AND is_labeled.issue=issues.number
                  WHERE is_labeled.repo=? AND is_labeled.issue=?"
             ).bind(repo_id).bind(issue.number)
              .fetch(&mut *conn)
