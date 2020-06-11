@@ -93,7 +93,7 @@ async fn init_db(conn: &mut Conn) {
         CREATE TABLE IF NOT EXISTS is_labeled(
             repo integer, issue integer,
             label integer RFERENCES labels,
-            PRIMARY KEY (issue, label),
+            PRIMARY KEY (repo, issue, label),
             FOREIGN KEY (repo, issue) REFERENCES issues
         );
     "#).execute(conn)
