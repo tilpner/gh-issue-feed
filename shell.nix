@@ -18,6 +18,6 @@ in mkShell {
   ] ++ (with llvmPackages; [
     clang llvm
     libclang.lib
-    lldClang
+    bintools
   ]);
 }
